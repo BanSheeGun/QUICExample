@@ -57,8 +57,6 @@ void set_color_output(bool f);
 
 int handshake_completed(ngtcp2_conn *conn, void *user_data);
 
-bool packet_lost(double prob);
-
 void print_crypto_data(const uint8_t *data, size_t datalen);
 
 void print_stream_data(uint64_t stream_id, const uint8_t *data, size_t datalen);

@@ -351,7 +351,7 @@ int run(Client &c, const char *addr, const char *port) {
   }
 
   if (c.init(fd, local_addr, remote_addr, addr, port, config.fd,
-             config.version) != 0) {
+             NGTCP2_PROTO_VER_D17) != 0) {
     return -1;
   }
 
@@ -403,8 +403,6 @@ void print_usage() {
 namespace {
 void config_set_default(Config &config) {
   config = Config{};
-  config.tx_loss_prob = 0.;
-  config.rx_loss_prob = 0.;
   config.fd = -1;
   config.ciphers = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_"
                    "POLY1305_SHA256";
@@ -412,7 +410,6 @@ void config_set_default(Config &config) {
   config.nstreams = 1;
   config.data = nullptr;
   config.datalen = 0;
-  config.version = NGTCP2_PROTO_VER_D17;
   config.timeout = 30;
 }
 } // namespace
@@ -427,23 +424,11 @@ void print_help() {
   <ADDR>      Remote server address
   <PORT>      Remote server port
 Options:
-  -t, --tx-loss=<P>
-              The probability of losing outgoing packets.  <P> must be
-              [0.0, 1.0],  inclusive.  0.0 means no  packet loss.  1.0
-              means 100% packet loss.
-  -r, --rx-loss=<P>
-              The probability of losing incoming packets.  <P> must be
-              [0.0, 1.0],  inclusive.  0.0 means no  packet loss.  1.0
-              means 100% packet loss.
   -d, --data=<PATH>
               Read data from <PATH>, and send them as STREAM data.
   -n, --nstreams=<N>
               When used with --data,  this option specifies the number
               of streams to send the data specified by --data.
-  -v, --version=<HEX>
-              Specify QUIC version to use in hex string.
-              Default: )"
-            << std::hex << "0x" << config.version << std::dec << R"(
   -q, --quiet Suppress debug output.
   -s, --show-secret
               Print out secrets unless --quiet is used.
@@ -467,17 +452,6 @@ Options:
               Read/write QUIC transport parameters from/to <PATH>.  To
               send 0-RTT data, the  transport parameters received from
               the previous session must be supplied with this option.
-  --dcid=<DCID>
-              Specify  initial  DCID.   <DCID> is  hex  string.   When
-              decoded as binary, it should be  at least 8 bytes and at
-              most 18 bytes long.
-  --net-rebinding
-              When   used  with   --change-local-addr,  simulate   NAT
-              rebinding.   In   other  words,  client   changes  local
-              address, but it does not start path validation.
-  --key-update=<T>
-              Client  initiates key  update  when  <T> seconds  elapse
-              after handshake completes.
   -h, --help  Display this help and exit.
 )";
 }
@@ -491,11 +465,8 @@ int main(int argc, char **argv) {
     static int flag = 0;
     constexpr static option long_opts[] = {
         {"help", no_argument, nullptr, 'h'},
-        {"tx-loss", required_argument, nullptr, 't'},
-        {"rx-loss", required_argument, nullptr, 'r'},
         {"data", required_argument, nullptr, 'd'},
         {"nstreams", required_argument, nullptr, 'n'},
-        {"version", required_argument, nullptr, 'v'},
         {"quiet", no_argument, nullptr, 'q'},
         {"show-secret", no_argument, nullptr, 's'},
         {"ciphers", required_argument, &flag, 1},
@@ -503,13 +474,11 @@ int main(int argc, char **argv) {
         {"timeout", required_argument, &flag, 3},
         {"session-file", required_argument, &flag, 4},
         {"tp-file", required_argument, &flag, 5},
-        {"dcid", required_argument, &flag, 6},
-        {"nat-rebinding", no_argument, &flag, 9},
         {nullptr, 0, nullptr, 0},
     };
 
     auto optidx = 0;
-    auto c = getopt_long(argc, argv, "d:hn:qr:st:v:", long_opts, &optidx);
+    auto c = getopt_long(argc, argv, "d:hn:qs", long_opts, &optidx);
     if (c == -1) {
       break;
     }
@@ -530,21 +499,9 @@ int main(int argc, char **argv) {
       // -quiet
       config.quiet = true;
       break;
-    case 'r':
-      // --rx-loss
-      config.rx_loss_prob = strtod(optarg, nullptr);
-      break;
     case 's':
       // --show-secret
       config.show_secret = true;
-      break;
-    case 't':
-      // --tx-loss
-      config.tx_loss_prob = strtod(optarg, nullptr);
-      break;
-    case 'v':
-      // --version
-      config.version = strtol(optarg, nullptr, 16);
       break;
     case '?':
       print_usage();
@@ -570,23 +527,6 @@ int main(int argc, char **argv) {
       case 5:
         // --tp-file
         config.tp_file = optarg;
-        break;
-      case 6: {
-        // --dcid
-        auto dcidlen2 = strlen(optarg);
-        if (dcidlen2 % 2 || dcidlen2 / 2 < 8 || dcidlen2 / 2 > 18) {
-          std::cerr << "dcid: wrong length" << std::endl;
-          exit(EXIT_FAILURE);
-        }
-        auto dcid = util::decode_hex(optarg);
-        ngtcp2_cid_init(&config.dcid,
-                        reinterpret_cast<const uint8_t *>(dcid.c_str()),
-                        dcid.size());
-        break;
-      }
-      case 9:
-        // --nat-rebinding
-        config.nat_rebinding = true;
         break;
       }
       break;

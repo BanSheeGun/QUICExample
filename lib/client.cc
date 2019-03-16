@@ -53,19 +53,6 @@ namespace {
 auto randgen = util::make_mt19937();
 } // namespace
 
-Config config{};
-
-Buffer::Buffer(const uint8_t *data, size_t datalen)
-    : buf{data, data + datalen},
-      begin(buf.data()),
-      head(begin),
-      tail(begin + datalen) {}
-Buffer::Buffer(uint8_t *begin, uint8_t *end)
-    : begin(begin), head(begin), tail(end) {}
-Buffer::Buffer(size_t datalen)
-    : buf(datalen), begin(buf.data()), head(begin), tail(begin) {}
-Buffer::Buffer() : begin(buf.data()), head(begin), tail(begin) {}
-
 Stream::Stream(uint64_t stream_id)
     : stream_id(stream_id),
       streambuf_idx(0),
@@ -430,8 +417,6 @@ Client::~Client() {
 void Client::disconnect() { disconnect(0); }
 
 void Client::disconnect(int liberr) {
-  config.tx_loss_prob = 0;
-
   ev_timer_stop(loop_, &rttimer_);
   ev_timer_stop(loop_, &timer_);
 
@@ -868,13 +853,10 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   scid.datalen = 17;
   std::generate(std::begin(scid.data), std::begin(scid.data) + scid.datalen,
                 [&dis]() { return dis(randgen); });
-  if (config.dcid.datalen == 0) {
-    dcid.datalen = 18;
-    std::generate(std::begin(dcid.data), std::begin(dcid.data) + dcid.datalen,
-                  [&dis]() { return dis(randgen); });
-  } else {
-    dcid = config.dcid;
-  }
+  dcid.datalen = 18;
+  std::generate(std::begin(dcid.data), std::begin(dcid.data) + dcid.datalen,
+                [&dis]() { return dis(randgen); });
+
 
   ngtcp2_settings settings{};
   settings.log_printf = config.quiet ? nullptr : debug::log_printf;
@@ -1243,13 +1225,6 @@ int Client::on_read() {
     if (!config.quiet) {
       std::cerr << "Received packet from " << util::straddr(&su.sa, addrlen)
                 << std::endl;
-    }
-
-    if (debug::packet_lost(config.rx_loss_prob)) {
-      if (!config.quiet) {
-        std::cerr << "** Simulated incoming packet loss **" << std::endl;
-      }
-      break;
     }
 
     if (feed_data(&su.sa, addrlen, buf.data(), nread) != 0) {
@@ -1658,14 +1633,6 @@ int Client::update_key() {
 }
 
 int Client::send_packet() {
-  if (debug::packet_lost(config.tx_loss_prob)) {
-    if (!config.quiet) {
-      std::cerr << "** Simulated outgoing packet loss **" << std::endl;
-    }
-    sendbuf_.reset();
-    return NETWORK_ERR_OK;
-  }
-
   int eintr_retries = 5;
   ssize_t nwrite = 0;
 

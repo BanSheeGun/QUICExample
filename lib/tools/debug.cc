@@ -52,11 +52,6 @@ int handshake_completed(ngtcp2_conn *conn, void *user_data) {
   return 0;
 }
 
-bool packet_lost(double prob) {
-  auto p = std::uniform_real_distribution<>(0, 1)(randgen);
-  return p < prob;
-}
-
 void print_crypto_data(const uint8_t *data, size_t datalen) {
   fprintf(outfile, "Ordered CRYPTO data\n");
   util::hexdump(outfile, data, datalen);

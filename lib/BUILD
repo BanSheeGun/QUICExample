@@ -23,8 +23,10 @@ cc_library(
 cc_binary(
   name = "client",
   srcs = [
+    "err.h",
+    "global.h", "global.cc",
     "client.cc", "manager.cc", "client.h",
-    "global.h",
+    "buffer.h",
     "tools/template.h",
     "tools/debug.cc", "tools/debug.h",
     "tools/util.cc", "tools/util.h",

@@ -29,8 +29,6 @@
 #include <deque>
 #include <map>
 
-#include <ngtcp2/ngtcp2.h>
-
 #include <openssl/ssl.h>
 
 #include <ev.h>
@@ -38,78 +36,9 @@
 #include "tools/crypto.h"
 #include "tools/template.h"
 #include "tools/debug.h"
+#include "buffer.h"
 
 using namespace ngtcp2;
-
-struct Config {
-  ngtcp2_cid dcid;
-  // tx_loss_prob is probability of losing outgoing packet.
-  double tx_loss_prob;
-  // rx_loss_prob is probability of losing incoming packet.
-  double rx_loss_prob;
-  // fd is a file descriptor to read input for streams.
-  int fd;
-  // ciphers is the list of enabled ciphers.
-  const char *ciphers;
-  // groups is the list of supported groups.
-  const char *groups;
-  // nstreams is the number of streams to open.
-  size_t nstreams;
-  // data is the pointer to memory region which maps file denoted by
-  // fd.
-  uint8_t *data;
-  // datalen is the length of file denoted by fd.
-  size_t datalen;
-  // version is a QUIC version to use.
-  uint32_t version;
-  // quiet suppresses the output normally shown except for the error
-  // messages.
-  bool quiet;
-  // timeout is an idle timeout for QUIC connection.
-  uint32_t timeout;
-  // session_file is a path to a file to write, and read TLS session.
-  const char *session_file;
-  // tp_file is a path to a file to write, and read QUIC transport
-  // parameters.
-  const char *tp_file;
-  // show_secret is true if transport secrets should be printed out.
-  bool show_secret;
-  // nat_rebinding is true if simulated NAT rebinding is enabled.
-  bool nat_rebinding;
-};
-
-extern Config config;
-
-struct Buffer {
-  Buffer(const uint8_t *data, size_t datalen);
-  Buffer(uint8_t *begin, uint8_t *end);
-  explicit Buffer(size_t datalen);
-  Buffer();
-
-  size_t size() const { return tail - head; }
-  size_t left() const { return buf.data() + buf.size() - tail; }
-  uint8_t *const wpos() { return tail; }
-  const uint8_t *rpos() const { return head; }
-  void seek(size_t len) { head += len; }
-  void push(size_t len) { tail += len; }
-  void reset() {
-    head = begin;
-    tail = begin;
-  }
-  size_t bufsize() const { return tail - begin; }
-
-  std::vector<uint8_t> buf;
-  // begin points to the beginning of the buffer.  This might point to
-  // buf.data() if a buffer space is allocated by this object.  It is
-  // also allowed to point to the external shared buffer.
-  uint8_t *begin;
-  // head points to the position of the buffer where read should
-  // occur.
-  uint8_t *head;
-  // tail points to the position of the buffer where write should
-  // occur.
-  uint8_t *tail;
-};
 
 struct Stream {
   Stream(uint64_t stream_id);
