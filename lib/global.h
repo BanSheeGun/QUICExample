@@ -11,6 +11,7 @@
 #include <cstdint>
 
 #include "err.h"
+#include "callback.h"
 
 #define HAVE_ARPA_INET_H 1
 #define HAVE_CXX14 1

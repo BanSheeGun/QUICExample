@@ -2,6 +2,8 @@ cc_library(
   name = "quicsdk",
   srcs = [
     "api.h", "api.cc",
+    "err.h",
+    "callback.h", "callback.cc",
     "global.h",
   ],
   hdrs = ["api.h"],
@@ -25,6 +27,7 @@ cc_binary(
   srcs = [
     "err.h",
     "global.h", "global.cc",
+    "callback.h", "callback.cc",
     "client.cc", "manager.cc", "client.h",
     "buffer.h",
     "tools/template.h",

@@ -7,6 +7,8 @@
 #ifndef API_H
 #define API_H
 
+#include "callback.h"
+
 namespace quic_sdk {
 
 void test();

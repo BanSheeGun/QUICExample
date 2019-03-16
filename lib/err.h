@@ -9,7 +9,7 @@
 
 #include <string>
 
-enum quic_errno {
+enum QuicErrno {
   RECV_DATA          = 0,
   STREAM_CLOSED      = 1,
   TIME_OUT           = 2,
@@ -22,9 +22,9 @@ enum quic_errno {
   SESSION_ERROR      = 9
 };
 
-class quic_err {
+class QuicError {
 public:
-  quic_err(int err_code_)    
+  QuicError(int err_code_)    
       : err_code(err_code_) {
     switch (err_code_) {
       case RECV_DATA          : err_info = "recv data"; break;
