@@ -9,6 +9,8 @@
 
 #include "global.h"
 
+#include <vector>
+
 struct Buffer {
   Buffer(const uint8_t *data, size_t datalen)
       : buf{data, data + datalen},

@@ -3,8 +3,10 @@ cc_library(
   srcs = [
     "api.h", "api.cc",
     "err.h",
+    "buffer.h",
     "callback.h", "callback.cc",
     "request.h", "request.cc",
+    "message.h", "message.cc",
     "global.h",
   ],
   hdrs = ["api.h"],
@@ -30,6 +32,7 @@ cc_binary(
     "global.h", "global.cc",
     "callback.h", "callback.cc",
     "request.h", "request.cc",
+    "message.h", "message.cc",
     "client.cc", "manager.cc", "client.h",
     "buffer.h",
     "tools/template.h",
