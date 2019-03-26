@@ -25,6 +25,7 @@
 #include <openssl/err.h>
 
 #include "client.h"
+#include "manager.h"
 #include "tools/debug.h"
 #include "tools/util.h"
 #include "tools/crypto.h"
@@ -246,8 +247,6 @@ SSL_CTX *create_ssl_ctx() {
 }
 } // namespace
 
-
-
 namespace {
 int bind_addr(Address &local_addr, int fd, int family) {
   addrinfo hints{};
@@ -336,7 +335,7 @@ int create_sock(Address &remote_addr, const char *addr, const char *port) {
 } // namespace
 
 namespace {
-int run(Client &c, const char *addr, const char *port) {
+int run(std::shared_ptr<Client> c, const char *addr, const char *port, EV_P) {
   Address remote_addr, local_addr;
   ssize_t nwrite;
 
@@ -350,7 +349,7 @@ int run(Client &c, const char *addr, const char *port) {
     return -1;
   }
 
-  if (c.init(fd, local_addr, remote_addr, addr, port, config.fd,
+  if (c->init(fd, local_addr, remote_addr, addr, port,
              NGTCP2_PROTO_VER_D17) != 0) {
     return -1;
   }
@@ -361,25 +360,25 @@ int run(Client &c, const char *addr, const char *port) {
       std::cerr << "Could not read transport parameters from " << config.tp_file
                 << std::endl;
     } else {
-      ngtcp2_conn_set_early_remote_transport_params(c.conn(), &params);
-      c.make_stream_early();
+      ngtcp2_conn_set_early_remote_transport_params(c->conn(), &params);
+      c->make_stream_early();
     }
   }
 
   // For 0-RTT
-  auto rv = c.write_0rtt_streams();
+  auto rv = c->write_0rtt_streams();
   if (rv != 0) {
     return rv;
   }
 
-  nwrite = c.do_handshake_write_once();
+  nwrite = c->do_handshake_write_once();
   if (nwrite < 0) {
     return nwrite;
   }
 
-  c.schedule_retransmit();
+  c->schedule_retransmit();
 
-  ev_run(EV_DEFAULT, 0);
+  ev_run(loop, 0);
 
   return 0;
 }
@@ -394,183 +393,13 @@ void keylog_callback(const SSL *ssl, const char *line) {
 }
 } // namespace
 
-namespace {
-void print_usage() {
-  std::cerr << "Usage: client [OPTIONS] <ADDR> <PORT>" << std::endl;
-}
-} // namespace
-
-namespace {
-void config_set_default(Config &config) {
-  config = Config{};
-  config.fd = -1;
-  config.ciphers = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_"
-                   "POLY1305_SHA256";
-  config.groups = "P-256:X25519:P-384:P-521";
-  config.nstreams = 1;
-  config.data = nullptr;
-  config.datalen = 0;
-  config.timeout = 30;
-}
-} // namespace
-
-namespace {
-void print_help() {
-  print_usage();
-
-  config_set_default(config);
-
-  std::cout << R"(
-  <ADDR>      Remote server address
-  <PORT>      Remote server port
-Options:
-  -d, --data=<PATH>
-              Read data from <PATH>, and send them as STREAM data.
-  -n, --nstreams=<N>
-              When used with --data,  this option specifies the number
-              of streams to send the data specified by --data.
-  -q, --quiet Suppress debug output.
-  -s, --show-secret
-              Print out secrets unless --quiet is used.
-  --timeout=<T>
-              Specify idle timeout in seconds.
-              Default: )"
-            << config.timeout << R"(
-  --ciphers=<CIPHERS>
-              Specify the cipher suite list to enable.
-              Default: )"
-            << config.ciphers << R"(
-  --groups=<GROUPS>
-              Specify the supported groups.
-              Default: )"
-            << config.groups << R"(
-  --session-file=<PATH>
-              Read/write  TLS session  from/to  <PATH>.   To resume  a
-              session, the previous session must be supplied with this
-              option.
-  --tp-file=<PATH>
-              Read/write QUIC transport parameters from/to <PATH>.  To
-              send 0-RTT data, the  transport parameters received from
-              the previous session must be supplied with this option.
-  -h, --help  Display this help and exit.
-)";
-}
-} // namespace
-
-int main(int argc, char **argv) {
-  config_set_default(config);
-  char *data_path = nullptr;
-
-  for (;;) {
-    static int flag = 0;
-    constexpr static option long_opts[] = {
-        {"help", no_argument, nullptr, 'h'},
-        {"data", required_argument, nullptr, 'd'},
-        {"nstreams", required_argument, nullptr, 'n'},
-        {"quiet", no_argument, nullptr, 'q'},
-        {"show-secret", no_argument, nullptr, 's'},
-        {"ciphers", required_argument, &flag, 1},
-        {"groups", required_argument, &flag, 2},
-        {"timeout", required_argument, &flag, 3},
-        {"session-file", required_argument, &flag, 4},
-        {"tp-file", required_argument, &flag, 5},
-        {nullptr, 0, nullptr, 0},
-    };
-
-    auto optidx = 0;
-    auto c = getopt_long(argc, argv, "d:hn:qs", long_opts, &optidx);
-    if (c == -1) {
-      break;
-    }
-    switch (c) {
-    case 'd':
-      // --data
-      data_path = optarg;
-      break;
-    case 'h':
-      // --help
-      print_help();
-      exit(EXIT_SUCCESS);
-    case 'n':
-      // --streams
-      config.nstreams = strtol(optarg, nullptr, 10);
-      break;
-    case 'q':
-      // -quiet
-      config.quiet = true;
-      break;
-    case 's':
-      // --show-secret
-      config.show_secret = true;
-      break;
-    case '?':
-      print_usage();
-      exit(EXIT_FAILURE);
-    case 0:
-      switch (flag) {
-      case 1:
-        // --ciphers
-        config.ciphers = optarg;
-        break;
-      case 2:
-        // --groups
-        config.groups = optarg;
-        break;
-      case 3:
-        // --timeout
-        config.timeout = strtol(optarg, nullptr, 10);
-        break;
-      case 4:
-        // --session-file
-        config.session_file = optarg;
-        break;
-      case 5:
-        // --tp-file
-        config.tp_file = optarg;
-        break;
-      }
-      break;
-    default:
-      break;
-    };
-  }
-
-  if (argc - optind < 2) {
-    std::cerr << "Too few arguments" << std::endl;
-    print_usage();
-    exit(EXIT_FAILURE);
-  }
-
-  if (data_path) {
-    auto fd = open(data_path, O_RDONLY);
-    if (fd == -1) {
-      std::cerr << "data: Could not open file " << data_path << ": "
-                << strerror(errno) << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    struct stat st;
-    if (fstat(fd, &st) != 0) {
-      std::cerr << "data: Could not stat file " << data_path << ": "
-                << strerror(errno) << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    config.fd = fd;
-    config.datalen = st.st_size;
-    config.data = static_cast<uint8_t *>(
-        mmap(nullptr, config.datalen, PROT_READ, MAP_SHARED, fd, 0));
-  }
-
-  auto addr = argv[optind++];
-  auto port = argv[optind++];
+int new_client(char *addr, char *port, Manager *manager) {
+  config.quiet = true;
 
   auto ssl_ctx = create_ssl_ctx();
   auto ssl_ctx_d = defer(SSL_CTX_free, ssl_ctx);
-
-  auto ev_loop_d = defer(ev_loop_destroy, EV_DEFAULT);
-
-  if (isatty(STDOUT_FILENO)) {
-    debug::set_color_output(true);
-  }
+  EV_P = ev_loop_new(EVFLAG_AUTO);
+  auto ev_loop_d = defer(ev_loop_destroy, loop);
 
   auto keylog_filename = getenv("SSLKEYLOGFILE");
   if (keylog_filename) {
@@ -580,11 +409,28 @@ int main(int argc, char **argv) {
     }
   }
 
-  Client c(EV_DEFAULT, ssl_ctx);
+  manager->client.reset(new Client(loop, ssl_ctx, manager->mss_queue));
 
-  if (run(c, addr, port) != 0) {
-    exit(EXIT_FAILURE);
-  }
+  run(manager->client, addr, port, loop);
+  return 0;
+}
 
-  return EXIT_SUCCESS;
+Manager::Manager(std::string addr, std::string port) 
+  : remote_key(addr + ":" + port),
+    client(nullptr),
+    mss_queue(new MessageQueue()) {
+  client_thread = std::thread(new_client, addr.data(), port.data(), this);
+}
+
+Manager::~Manager() {
+  // TODO
+  client.reset();
+  mss_queue.reset();
+}
+
+void
+Manager::push(uint8_t * data, size_t datalen, bool fin, 
+              std::shared_ptr<Request> &req) {
+  mss_queue->push(data, datalen, fin, req);
+  if (client) client->new_message();
 }

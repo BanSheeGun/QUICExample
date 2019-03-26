@@ -38,19 +38,12 @@
 #define QUIC_LOG_DEBUG(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__);
 
 struct Config {
-  // fd is a file descriptor to read input for streams.
-  int fd;
   // ciphers is the list of enabled ciphers.
   const char *ciphers;
   // groups is the list of supported groups.
   const char *groups;
   // nstreams is the number of streams to open.
   size_t nstreams;
-  // data is the pointer to memory region which maps file denoted by
-  // fd.
-  uint8_t *data;
-  // datalen is the length of file denoted by fd.
-  size_t datalen;
   // quiet suppresses the output normally shown except for the error
   // messages.
   bool quiet;

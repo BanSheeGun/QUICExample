@@ -59,11 +59,18 @@ Stream::Stream(uint64_t stream_id)
       tx_stream_offset(0),
       should_send_fin(false) {}
 
-Stream::~Stream() {}
+Stream::~Stream() {
+  if (req) {
+    quic_request::request_pool.del(req->request_id);
+    req->callback(nullptr, 0, STREAM_CLOSED, stream_id);
+    req.reset();
+  }
+}
 
-void Stream::buffer_file() {
-  streambuf.emplace_back(config.data, config.data + config.datalen);
-  should_send_fin = true;
+void Stream::buffer_file(std::unique_ptr<Message> &mss) {
+  streambuf.push_back(std::move(mss->buf));
+  should_send_fin |= mss->fin;
+  req = mss->req;
 }
 
 namespace {
@@ -216,67 +223,49 @@ void msg_cb(int write_p, int version, int content_type, const void *buf,
 } // namespace
 
 namespace {
-int bio_write(BIO *b, const char *buf, int len) {
-  assert(0);
-  return -1;
-}
-} // namespace
+struct Quic_bio_meth_holder {
+  BIO_METHOD *data;
+  Quic_bio_meth_holder() { data = BIO_meth_new(BIO_TYPE_FD, "bio"); }
+  ~Quic_bio_meth_holder() { if (data) BIO_meth_free(data); }
+} quic_bio_meth_holder;
 
-namespace {
+int bio_write(BIO *b, const char *buf, int len) { assert(0); return -1; }
+
 int bio_read(BIO *b, char *buf, int len) {
   BIO_clear_retry_flags(b);
-
   auto c = static_cast<Client *>(BIO_get_data(b));
-
   len = c->read_server_handshake(reinterpret_cast<uint8_t *>(buf), len);
   if (len == 0) {
     BIO_set_retry_read(b);
     return -1;
   }
-
   return len;
 }
-} // namespace
 
-namespace {
 int bio_puts(BIO *b, const char *str) { return bio_write(b, str, strlen(str)); }
-} // namespace
 
-namespace {
 int bio_gets(BIO *b, char *buf, int len) { return -1; }
-} // namespace
 
-namespace {
 long bio_ctrl(BIO *b, int cmd, long num, void *ptr) {
   switch (cmd) {
   case BIO_CTRL_FLUSH:
     return 1;
   }
-
   return 0;
 }
-} // namespace
 
-namespace {
 int bio_create(BIO *b) {
   BIO_set_init(b, 1);
   return 1;
 }
-} // namespace
 
-namespace {
 int bio_destroy(BIO *b) {
-  if (b == nullptr) {
-    return 0;
-  }
-
+  if (b == nullptr) return 0;
   return 1;
 }
-} // namespace
 
-namespace {
 BIO_METHOD *create_bio_method() {
-  static auto meth = BIO_meth_new(BIO_TYPE_FD, "bio");
+  static auto meth = quic_bio_meth_holder.data;
   BIO_meth_set_write(meth, bio_write);
   BIO_meth_set_read(meth, bio_read);
   BIO_meth_set_puts(meth, bio_puts);
@@ -286,7 +275,7 @@ BIO_METHOD *create_bio_method() {
   BIO_meth_set_destroy(meth, bio_destroy);
   return meth;
 }
-} // namespace
+} // bio namespace
 
 namespace {
 void writecb(struct ev_loop *loop, ev_io *w, int revents) {
@@ -303,9 +292,7 @@ void writecb(struct ev_loop *loop, ev_io *w, int revents) {
     return;
   }
 }
-} // namespace
 
-namespace {
 void readcb(struct ev_loop *loop, ev_io *w, int revents) {
   auto c = static_cast<Client *>(w->data);
 
@@ -321,9 +308,7 @@ void readcb(struct ev_loop *loop, ev_io *w, int revents) {
     return;
   }
 }
-} // namespace
 
-namespace {
 void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto c = static_cast<Client *>(w->data);
 
@@ -333,9 +318,7 @@ void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
 
   c->disconnect();
 }
-} // namespace
 
-namespace {
 void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
   int rv;
   auto c = static_cast<Client *>(w->data);
@@ -368,22 +351,27 @@ fail:
     return;
   }
 }
-} // namespace
 
-namespace {
-void siginthandler(struct ev_loop *loop, ev_signal *w, int revents) {
-  ev_break(loop, EVBREAK_ALL);
+void stopcb(struct ev_loop *loop, ev_async *w, int revents) {
+  auto c = static_cast<Client *>(w->data);
+  c->disconnect();
+  ev_async_stop(loop, w);
 }
-} // namespace
 
-Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx)
+void new_messagecb(struct ev_loop *loop, ev_async *w, int revents) {
+  auto c = static_cast<Client *>(w->data);
+  c->send_message();
+}
+} // ev callbacks namespace
+
+Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx, 
+               std::shared_ptr<MessageQueue> mss_queue)
     : remote_addr_{},
       max_pktlen_(0),
       loop_(loop),
       ssl_ctx_(ssl_ctx),
       ssl_(nullptr),
       fd_(-1),
-      datafd_(-1),
       chandshake_idx_(0),
       tx_crypto_offset_(0),
       nsread_(0),
@@ -392,12 +380,12 @@ Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx)
       hs_crypto_ctx_{},
       crypto_ctx_{},
       sendbuf_{NGTCP2_MAX_PKTLEN_IPV4},
-      last_stream_id_(UINT64_MAX),
-      nstreams_done_(0),
       nkey_update_(0),
       version_(0),
       tls_alert_(0),
-      resumption_(false) {
+      resumption_(false),
+      handshake_completed_(false),
+      mss_queue_(mss_queue) {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   ev_io_init(&rev_, readcb, 0, EV_READ);
   wev_.data = this;
@@ -406,30 +394,13 @@ Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx)
   timer_.data = this;
   ev_timer_init(&rttimer_, retransmitcb, 0., 0.);
   rttimer_.data = this;
-  ev_signal_init(&sigintev_, siginthandler, SIGINT);
+  ev_async_init(&stop_, stopcb);
+  stop_.data = this;
+  ev_async_init(&new_message_, new_messagecb);
+  new_message_.data = this;
 }
 
 Client::~Client() {
-  disconnect();
-  close();
-}
-
-void Client::disconnect() { disconnect(0); }
-
-void Client::disconnect(int liberr) {
-  ev_timer_stop(loop_, &rttimer_);
-  ev_timer_stop(loop_, &timer_);
-
-  ev_io_stop(loop_, &rev_);
-
-  ev_signal_stop(loop_, &sigintev_);
-
-  handle_error(liberr);
-}
-
-void Client::close() {
-  ev_io_stop(loop_, &wev_);
-
   if (conn_) {
     ngtcp2_conn_del(conn_);
     conn_ = nullptr;
@@ -441,9 +412,23 @@ void Client::close() {
   }
 
   if (fd_ != -1) {
-    ::close(fd_);
+    close(fd_);
     fd_ = -1;
   }
+}
+
+void Client::disconnect() { disconnect(0); }
+
+void Client::disconnect(int liberr) {
+  // TODO
+
+  ev_timer_stop(loop_, &rttimer_);
+  ev_timer_stop(loop_, &timer_);
+  ev_async_stop(loop_, &new_message_);
+  ev_io_stop(loop_, &rev_);
+
+  handle_error(liberr);
+  ev_io_stop(loop_, &wev_);
 }
 
 namespace {
@@ -486,11 +471,13 @@ namespace {
 int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
                      uint64_t offset, const uint8_t *data, size_t datalen,
                      void *user_data, void *stream_user_data) {
-  if (!config.quiet) {
-    debug::print_stream_data(stream_id, data, datalen);
-  }
   ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);
   ngtcp2_conn_extend_max_offset(conn, datalen);
+
+  auto c = static_cast<Client *>(user_data);
+  if (c->recv_stream_data(stream_id, fin, data, datalen) != 0) {
+    return NGTCP2_ERR_CALLBACK_FAILURE;
+  }
   return 0;
 }
 } // namespace
@@ -520,7 +507,7 @@ int acked_stream_data_offset(ngtcp2_conn *conn, uint64_t stream_id,
 namespace {
 int handshake_completed(ngtcp2_conn *conn, void *user_data) {
   auto c = static_cast<Client *>(user_data);
-  (void *)c;
+  c->handshake_completed();
   if (!config.quiet) {
     debug::handshake_completed(conn, user_data);
   }
@@ -548,19 +535,6 @@ int stream_close(ngtcp2_conn *conn, uint64_t stream_id, uint16_t app_error_code,
   auto c = static_cast<Client *>(user_data);
 
   c->on_stream_close(stream_id);
-
-  return 0;
-}
-} // namespace
-
-namespace {
-int extend_max_streams_bidi(ngtcp2_conn *conn, uint64_t max_streams,
-                            void *user_data) {
-  auto c = static_cast<Client *>(user_data);
-
-  if (c->on_extend_max_streams() != 0) {
-    return NGTCP2_ERR_CALLBACK_FAILURE;
-  }
 
   return 0;
 }
@@ -790,8 +764,7 @@ int Client::init_ssl() {
 }
 
 int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
-                 const char *addr, const char *port, int datafd,
-                 uint32_t version) {
+                 const char *addr, const char *port, uint32_t version) {
   int rv;
 
   local_addr_ = local_addr;
@@ -809,7 +782,6 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   }
 
   fd_ = fd;
-  datafd_ = datafd;
   addr_ = addr;
   port_ = port;
   version_ = version;
@@ -822,7 +794,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
       client_initial,
       nullptr, // recv_client_initial
       recv_crypto_data,
-      handshake_completed,
+      ::handshake_completed,
       nullptr, // recv_version_negotiation
       do_hs_encrypt,
       do_hs_decrypt,
@@ -830,14 +802,14 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
       do_decrypt,
       do_in_hp_mask,
       do_hp_mask,
-      recv_stream_data,
+      ::recv_stream_data,
       acked_crypto_offset,
       acked_stream_data_offset,
       nullptr, // stream_open
       stream_close,
       nullptr, // recv_stateless_reset
       recv_retry,
-      extend_max_streams_bidi,
+      nullptr, // extend_max_streams_bidi,
       nullptr, // extend_max_streams_uni
       rand,    // rand
       get_new_connection_id,
@@ -895,7 +867,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   ev_io_start(loop_, &rev_);
   ev_timer_again(loop_, &timer_);
 
-  ev_signal_start(loop_, &sigintev_);
+  ev_async_start(loop_, &stop_);
 
   return 0;
 }
@@ -1734,62 +1706,95 @@ int Client::remove_tx_stream_data(uint64_t stream_id, uint64_t offset,
 
 void Client::on_stream_close(uint64_t stream_id) {
   auto it = streams_.find(stream_id);
-
-  if (it == std::end(streams_)) {
-    return;
-  }
-
+  if (it == std::end(streams_)) return;
   streams_.erase(it);
 }
 
 void Client::make_stream_early() {
   int rv;
+  std::unique_ptr<Message> mss = mss_queue_->pop();
+  if (!mss) return;
 
-  if (nstreams_done_ >= config.nstreams) {
-    return;
-  }
-
-  ++nstreams_done_;
+  std::shared_ptr<Request> req = mss->req;
+  req->mtx.lock();
 
   uint64_t stream_id;
   rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
   if (rv != 0) {
     std::cerr << "ngtcp2_conn_open_bidi_stream: " << ngtcp2_strerror(rv)
               << std::endl;
+    req->mtx.unlock();
     return;
   }
-
+  assert(req->stream_id == -1);
   auto stream = std::make_unique<Stream>(stream_id);
-  stream->buffer_file();
+  stream->buffer_file(mss);
   streams_.emplace(stream_id, std::move(stream));
-}
-
-int Client::on_extend_max_streams() {
-  int rv;
-
-  if (datafd_ != -1) {
-    for (; nstreams_done_ < config.nstreams; ++nstreams_done_) {
-      uint64_t stream_id;
-
-      rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
-      if (rv != 0) {
-        assert(NGTCP2_ERR_STREAM_ID_BLOCKED == rv);
-        break;
-      }
-
-      last_stream_id_ = stream_id;
-
-      auto stream = std::make_unique<Stream>(stream_id);
-      stream->buffer_file();
-
-      streams_.emplace(stream_id, std::move(stream));
-    }
-    return 0;
-  }
-
-  return 0;
+  req->stream_id = stream_id;
+  req->mtx.unlock();
 }
 
 void Client::start_wev() { ev_io_start(loop_, &wev_); }
 
 void Client::set_tls_alert(uint8_t alert) { tls_alert_ = alert; }
+
+void Client::handshake_completed() {
+  // TODO
+  handshake_completed_ = true;
+
+  ev_async_start(loop_, &new_message_);
+  ev_async_send(loop_, &new_message_);
+}
+
+int Client::recv_stream_data(uint64_t stream_id, uint8_t fin,
+                            const uint8_t *data, size_t datalen) {
+  if (!config.quiet) {
+    debug::print_stream_data(stream_id, data, datalen);
+  }
+  auto it = streams_.find(stream_id);
+  if (it == std::end(streams_)) return 0;
+  // TODO
+  auto &stream = (*it).second;
+  if (stream->req)
+    stream->req->callback(data, datalen, RECV_DATA, stream_id);
+  return 0;
+}
+
+void Client::stop() { ev_async_send(loop_, &stop_); }
+
+void Client::new_message() { ev_async_send(loop_, &new_message_); }
+
+void
+Client::send_message() {
+  std::unique_ptr<Message> mss;
+  while (mss = mss_queue_->pop(), mss) send_message(mss);
+}
+
+void
+Client::send_message(std::unique_ptr<Message> &mss) {
+  int rv;
+  std::shared_ptr<Request> req = mss->req;
+  req->mtx.lock();
+  uint64_t stream_id;
+
+  if (req->stream_id == -1) {
+    rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
+    if (rv != 0) {
+      std::cerr << "ngtcp2_conn_open_bidi_stream: " << ngtcp2_strerror(rv)
+                << std::endl;
+      req->mtx.unlock();
+      return;
+    }
+    req->stream_id = stream_id;
+    streams_.emplace(stream_id, std::make_unique<Stream>(stream_id));
+  } else {
+    stream_id = req->stream_id;
+  }
+
+
+  auto &stream = streams_.at(stream_id);
+  stream->buffer_file(mss);
+  ev_feed_event(loop_, &wev_, EV_WRITE);
+  mss.reset();
+  req->mtx.unlock();
+}

@@ -28,6 +28,7 @@
 #include <vector>
 #include <deque>
 #include <map>
+#include <memory>
 
 #include <openssl/ssl.h>
 
@@ -37,6 +38,8 @@
 #include "tools/template.h"
 #include "tools/debug.h"
 #include "buffer.h"
+#include "message.h"
+#include "request.h"
 
 using namespace ngtcp2;
 
@@ -44,7 +47,7 @@ struct Stream {
   Stream(uint64_t stream_id);
   ~Stream();
 
-  void buffer_file();
+  void buffer_file(std::unique_ptr<Message> &);
 
   uint64_t stream_id;
   std::deque<Buffer> streambuf;
@@ -55,19 +58,19 @@ struct Stream {
   // acked by the remote endpoint.
   uint64_t tx_stream_offset;
   bool should_send_fin;
+  std::shared_ptr<Request> req;
 };
 
 class Client {
 public:
-  Client(struct ev_loop *loop, SSL_CTX *ssl_ctx);
+  Client(struct ev_loop *loop, SSL_CTX *ssl_ctx, std::shared_ptr<MessageQueue> mss_queue);
   ~Client();
 
   int init(int fd, const Address &local_addr, const Address &remote_addr,
-           const char *addr, const char *port, int datafd, uint32_t version);
+           const char *addr, const char *port, uint32_t version);
   int init_ssl();
   void disconnect();
   void disconnect(int liberr);
-  void close();
 
   void start_wev();
 
@@ -118,20 +121,25 @@ public:
   ssize_t hp_mask(uint8_t *data, size_t destlen, const uint8_t *key,
                   size_t keylen, const uint8_t *sample, size_t samplelen);
   ngtcp2_conn *conn() const;
+  int recv_stream_data(uint64_t stream_id, uint8_t fin, const uint8_t *data,
+                       size_t datalen);
   int send_packet();
   void remove_tx_crypto_data(uint64_t offset, size_t datalen);
   int remove_tx_stream_data(uint64_t stream_id, uint64_t offset,
                             size_t datalen);
   void on_stream_close(uint64_t stream_id);
-  int on_extend_max_streams();
   int handle_error(int liberr);
   void make_stream_early();
   void on_recv_retry();
   int update_key();
-
   int on_key(int name, const uint8_t *secret, size_t secretlen);
-
   void set_tls_alert(uint8_t alert);
+  void handshake_completed();
+  void stop();
+  void new_message();
+  void send_message();
+  void send_message(std::unique_ptr<Message> &mss);
+
 
 private:
   Address local_addr_;
@@ -141,12 +149,12 @@ private:
   ev_io rev_;
   ev_timer timer_;
   ev_timer rttimer_;
-  ev_signal sigintev_;
+  ev_async stop_;
+  ev_async new_message_;
   struct ev_loop *loop_;
   SSL_CTX *ssl_ctx_;
   SSL *ssl_;
   int fd_;
-  int datafd_;
   std::map<uint32_t, std::unique_ptr<Stream>> streams_;
   std::deque<Buffer> chandshake_;
   // chandshake_idx_ is the index in *chandshake_, which points to the
@@ -166,9 +174,6 @@ private:
   crypto::Context crypto_ctx_;
   // common buffer used to store packet data before sending
   Buffer sendbuf_;
-  uint64_t last_stream_id_;
-  // nstreams_done_ is the number of streams opened.
-  uint64_t nstreams_done_;
   // nkey_update_ is the number of key update occurred.
   size_t nkey_update_;
   uint32_t version_;
@@ -177,6 +182,8 @@ private:
   uint8_t tls_alert_;
   // resumption_ is true if client attempts to resume session.
   bool resumption_;
+  bool handshake_completed_;
+  std::shared_ptr<MessageQueue> mss_queue_;
 };
 
 #endif // CLIENT_H

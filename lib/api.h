@@ -11,8 +11,13 @@
 
 namespace quic_sdk {
 
-void test();
+void initialize();
 
+void clear();
+
+int new_request(std::string, std::string, double, void (*)QUIC_CALLBACK_PAR);
+
+void send(int, uint8_t *, size_t, bool);
 
 } // namespace quic_sdk
 
