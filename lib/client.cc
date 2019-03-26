@@ -61,7 +61,7 @@ Stream::Stream(uint64_t stream_id)
 
 Stream::~Stream() {
   if (req) {
-    quic_request::request_pool.del(req->request_id);
+    quic_request::del(req->request_id);
     req->callback(nullptr, 0, STREAM_CLOSED, stream_id);
     req.reset();
   }

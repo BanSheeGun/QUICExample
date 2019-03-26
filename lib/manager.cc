@@ -423,7 +423,8 @@ Manager::Manager(std::string addr, std::string port)
 }
 
 Manager::~Manager() {
-  // TODO
+  client->stop();
+  client_thread.join();
   client.reset();
   mss_queue.reset();
 }

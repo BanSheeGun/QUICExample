@@ -67,10 +67,10 @@ quic_sdk::clear() {
 int 
 quic_sdk::new_request(std::string addr, std::string port, 
     double time, void (*cb)QUIC_CALLBACK_PAR) {
-  return quic_request::request_pool.generate_new_request(addr, port, time, cb);
+  return quic_request::generate_new_request(addr, port, time, cb);
 }
 
 void
 quic_sdk::send(int request_id, uint8_t *data, size_t datalen, bool fin) {
-  std::shared_ptr<Request> request = quic_request::request_pool.find(request_id);
+  std::shared_ptr<Request> request = quic_request::find(request_id);
 }

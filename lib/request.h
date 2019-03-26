@@ -48,7 +48,10 @@ struct RequestPool {
 };
 
 namespace quic_request {
-extern RequestPool request_pool;
-}
+int generate_new_request(std::string, std::string, double, void (*)QUIC_CALLBACK_PAR);
+std::shared_ptr<Request> find(int);
+void del(int);
+void reset(int);
+} // namespace
 
 #endif // REQUEST_H

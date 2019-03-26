@@ -12,6 +12,7 @@
 #include "client.h"
 
 #include <thread>
+#include <map>
 
 struct Manager {
   Manager(std::string addr, std::string port);
@@ -23,6 +24,11 @@ struct Manager {
   std::shared_ptr<Client > client;
   std::thread client_thread;
   std::shared_ptr<MessageQueue> mss_queue;
+};
+
+struct ManagerPool {
+  std::map<std::string, Manager> pool;
+  std::mutex mtx;
 };
 
 #endif // MANAGER_H

@@ -40,8 +40,6 @@ Request::callback(const uint8_t* data, size_t datalen,
   }
 }
 
-RequestPool quic_request::request_pool;
-
 RequestPool::RequestPool() {
   mtx.lock();
   pool.clear();
@@ -98,3 +96,19 @@ RequestPool::reset(int id) {
     it->second->reset();
   mtx.unlock();
 }
+
+
+namespace quic_request {
+RequestPool request_pool;
+
+int generate_new_request(std::string addr, std::string port,
+                         double time, void (*cb)QUIC_CALLBACK_PAR) {
+  return request_pool.generate_new_request(addr, port, time, cb);
+}
+
+std::shared_ptr<Request> find(int id) { return request_pool.find(id); }
+
+void del(int id) { request_pool.del(id); }
+
+void reset(int id) { request_pool.reset(id); }
+} // namespace
