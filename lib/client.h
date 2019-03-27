@@ -139,6 +139,7 @@ public:
   void new_message();
   void send_message();
   void send_message(std::unique_ptr<Message> &mss);
+  bool is_alive;
 
 
 private:

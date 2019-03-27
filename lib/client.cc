@@ -355,7 +355,6 @@ fail:
 void stopcb(struct ev_loop *loop, ev_async *w, int revents) {
   auto c = static_cast<Client *>(w->data);
   c->disconnect();
-  ev_async_stop(loop, w);
 }
 
 void new_messagecb(struct ev_loop *loop, ev_async *w, int revents) {
@@ -385,7 +384,8 @@ Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx,
       tls_alert_(0),
       resumption_(false),
       handshake_completed_(false),
-      mss_queue_(mss_queue) {
+      mss_queue_(mss_queue),
+      is_alive(true) {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   ev_io_init(&rev_, readcb, 0, EV_READ);
   wev_.data = this;
@@ -420,11 +420,12 @@ Client::~Client() {
 void Client::disconnect() { disconnect(0); }
 
 void Client::disconnect(int liberr) {
-  // TODO
+  is_alive = false;
 
   ev_timer_stop(loop_, &rttimer_);
   ev_timer_stop(loop_, &timer_);
   ev_async_stop(loop_, &new_message_);
+  ev_async_stop(loop_, &stop_);
   ev_io_stop(loop_, &rev_);
 
   handle_error(liberr);
@@ -1760,7 +1761,7 @@ int Client::recv_stream_data(uint64_t stream_id, uint8_t fin,
   return 0;
 }
 
-void Client::stop() { ev_async_send(loop_, &stop_); }
+void Client::stop() { if (is_alive) ev_async_send(loop_, &stop_); }
 
 void Client::new_message() { ev_async_send(loop_, &new_message_); }
 

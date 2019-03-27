@@ -393,7 +393,7 @@ void keylog_callback(const SSL *ssl, const char *line) {
 }
 } // namespace
 
-int new_client(char *addr, char *port, Manager *manager) {
+int new_client(std::string addr, std::string port, Manager *manager) {
   config.quiet = true;
 
   auto ssl_ctx = create_ssl_ctx();
@@ -411,7 +411,7 @@ int new_client(char *addr, char *port, Manager *manager) {
 
   manager->client.reset(new Client(loop, ssl_ctx, manager->mss_queue));
 
-  run(manager->client, addr, port, loop);
+  run(manager->client, addr.data(), port.data(), loop);
   return 0;
 }
 
@@ -419,7 +419,7 @@ Manager::Manager(std::string addr, std::string port)
   : remote_key(addr + ":" + port),
     client(nullptr),
     mss_queue(new MessageQueue()) {
-  client_thread = std::thread(new_client, addr.data(), port.data(), this);
+  client_thread = std::thread(new_client, addr, port, this);
 }
 
 Manager::~Manager() {

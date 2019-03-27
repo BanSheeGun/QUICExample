@@ -8,10 +8,12 @@
 
 #include <cstdio>
 #include <mutex>
+#include <unordered_map>
 
 #include "global.h"
 #include "client.h"
 #include "request.h"
+#include "manager.h"
 
 namespace {
 static std::mutex *lockarray; 
@@ -52,6 +54,11 @@ void config_set_default(Config &config) {
 }
 } // namespace
 
+namespace {
+std::unordered_map<std::string, Manager> pool;
+std::mutex mtx;
+}
+
 void
 quic_sdk::initialize() {
   config_set_default(config);
@@ -60,7 +67,7 @@ quic_sdk::initialize() {
 
 void
 quic_sdk::clear() {
-  // TODO:
+  pool.clear();
   kill_locks();
 }
 
@@ -72,5 +79,24 @@ quic_sdk::new_request(std::string addr, std::string port,
 
 void
 quic_sdk::send(int request_id, uint8_t *data, size_t datalen, bool fin) {
-  std::shared_ptr<Request> request = quic_request::find(request_id);
+  std::shared_ptr<Request> req = quic_request::find(request_id);
+  if (!req) return;
+  mtx.lock();
+  auto it = pool.find(req->key);
+  if (it == pool.end()) {
+    pool.emplace(std::piecewise_construct,
+                 std::forward_as_tuple(req->key),
+                 std::forward_as_tuple(req->addr, req->port));
+  } else {
+    if (it->second.client && !it->second.client->is_alive) {
+      pool.erase(it);
+      pool.emplace(std::piecewise_construct,
+                   std::forward_as_tuple(req->key),
+                   std::forward_as_tuple(req->addr, req->port));
+    }
+  }
+  it = pool.find(req->key);
+  auto &man = it->second; 
+  man.push(data, datalen, fin, req);
+  mtx.unlock();
 }
