@@ -740,22 +740,24 @@ int Client::init_ssl() {
     SSL_set_tlsext_host_name(ssl_, addr_);
   }
 
-  if (config.session_file) {
-    auto f = BIO_new_file(config.session_file, "r");
-    if (f == nullptr) {
-      std::cerr << "Could not read TLS session file " << config.session_file
-                << std::endl;
-    } else {
-      auto session = PEM_read_bio_SSL_SESSION(f, nullptr, 0, nullptr);
-      BIO_free(f);
+  std::string value;
+  if (quic_callback::read_data(remote_key, value)) {
+    size_t session_len = 0;
+    unsigned char *session_ptr = nullptr;
+    util::Base64Decode(value.c_str(), &session_ptr, &session_len);
+    if (session_len != 0) {
+      const unsigned char *tmp = session_ptr;
+      auto session = d2i_SSL_SESSION(nullptr, &tmp, session_len);
+      free(session_ptr);
       if (session == nullptr) {
-        std::cerr << "Could not read TLS session file " << config.session_file
-                  << std::endl;
+        QUIC_LOG("Could not read TLS session file\n");
+        quic_callback::notice_error(QuicError(SESSION_ERROR), 0);
       } else {
         if (!SSL_set_session(ssl_, session)) {
-          std::cerr << "Could not set session" << std::endl;
+          QUIC_LOG("Could not set session\n");
+          quic_callback::notice_error(QuicError(SESSION_ERROR), 0);
         } else {
-          resumption_ = true;
+          resumption_ = true; 
         }
         SSL_SESSION_free(session);
       }

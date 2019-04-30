@@ -51,8 +51,6 @@ struct Config {
   bool quiet;
   // timeout is an idle timeout for QUIC connection.
   uint32_t timeout;
-  // session_file is a path to a file to write, and read TLS session.
-  const char *session_file;
   // show_secret is true if transport secrets should be printed out.
   bool show_secret;
 };

@@ -173,10 +173,7 @@ int transport_params_parse_cb(SSL *ssl, unsigned int ext_type,
     return -1;
   }
 
-  if (write_transport_params(&params) != 0) {
-    std::cerr << "Could not write transport parameters" << std::endl;
-  }
-
+  write_transport_params(&params);
   return 1;
 }
 } // namespace
@@ -187,16 +184,22 @@ int new_session_cb(SSL *ssl, SSL_SESSION *session) {
       std::numeric_limits<uint32_t>::max()) {
     std::cerr << "max_early_data_size is not 0xffffffff" << std::endl;
   }
-  auto f = BIO_new_file(config.session_file, "w");
-  if (f == nullptr) {
-    std::cerr << "Could not write TLS session in " << config.session_file
-              << std::endl;
-    return 0;
-  }
+  auto c = static_cast<Client *>(SSL_get_app_data(ssl));
+  std::string remote_key = c->remote_key;
 
-  PEM_write_bio_SSL_SESSION(f, session);
-  BIO_free(f);
+  // 存储
+  size_t session_len;
+  session_len = i2d_SSL_SESSION(session, NULL); 
+  unsigned char *session_ptr, *session_ptr_end;
+  session_ptr = session_ptr_end = (unsigned char *)malloc(session_len);
+  i2d_SSL_SESSION(session, &session_ptr_end); 
 
+  char *data;
+  util::Base64Encode(session_ptr, session_len, &data);
+  quic_callback::write_data(remote_key, data);
+
+  free(data);
+  free(session_ptr);
   return 0;
 }
 } // namespace
@@ -238,11 +241,9 @@ SSL_CTX *create_ssl_ctx() {
     exit(EXIT_FAILURE);
   }
 
-  if (config.session_file) {
-    SSL_CTX_set_session_cache_mode(
-        ssl_ctx, SSL_SESS_CACHE_CLIENT | SSL_SESS_CACHE_NO_INTERNAL_STORE);
-    SSL_CTX_sess_set_new_cb(ssl_ctx, new_session_cb);
-  }
+  SSL_CTX_set_session_cache_mode(
+      ssl_ctx, SSL_SESS_CACHE_CLIENT | SSL_SESS_CACHE_NO_INTERNAL_STORE);
+  SSL_CTX_sess_set_new_cb(ssl_ctx, new_session_cb);
 
   return ssl_ctx;
 }
@@ -392,8 +393,6 @@ void keylog_callback(const SSL *ssl, const char *line) {
 } // namespace
 
 int new_client(std::string addr, std::string port, Manager *manager) {
-  config.quiet = true;
-
   auto ssl_ctx = create_ssl_ctx();
   auto ssl_ctx_d = defer(SSL_CTX_free, ssl_ctx);
   EV_P = ev_loop_new(EVFLAG_AUTO);

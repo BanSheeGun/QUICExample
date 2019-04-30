@@ -23,6 +23,7 @@ void config_set_default(Config &config) {
   config.groups = "P-256:X25519:P-384:P-521";
   config.nstreams = 1;
   config.timeout = 30;
+  config.quiet = true;
 }
 } // namespace
 

@@ -12,7 +12,6 @@ std::mutex mtx, data_mtx;
 std::map<std::string, std::string> data;
 
 bool read_data(std::string key, std::string &value) {
-  std::cout << "read_data " << key << std::endl;
   data_mtx.lock();
   auto it = data.find(key);
   if (it != data.end()) {
@@ -26,7 +25,6 @@ bool read_data(std::string key, std::string &value) {
 }
 
 bool write_data(std::string key, std::string value) {
-  std::cout << "write_data " << key << std::endl;
   data_mtx.lock();
   data.emplace(key, value);
   data_mtx.unlock();
@@ -47,20 +45,6 @@ int main(int argc, char const *argv[]) {
   quic_callback::set_read_callback(read_data);
   quic_callback::set_write_callback(write_data);
   int id = quic_sdk::new_request("127.0.0.1", "4433", 1.0, recv_message);
-  mtx.lock();
-  quic_sdk::send(id, data, datalen, true);
-
-  mtx.lock();
-  mtx.unlock();
-  quic_sdk::clear();
-  std::cout << std::endl;
-
-  sleep(50);
-
-  quic_sdk::initialize();
-  quic_callback::set_read_callback(read_data);
-  quic_callback::set_write_callback(write_data);
-  id = quic_sdk::new_request("127.0.0.1", "4433", 1.0, recv_message);
   mtx.lock();
   quic_sdk::send(id, data, datalen, true);
 
