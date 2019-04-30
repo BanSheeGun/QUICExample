@@ -363,7 +363,7 @@ void new_messagecb(struct ev_loop *loop, ev_async *w, int revents) {
 }
 } // ev callbacks namespace
 
-Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx, 
+Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx, std::string remote_key_,
                std::shared_ptr<MessageQueue> mss_queue)
     : remote_addr_{},
       max_pktlen_(0),
@@ -385,7 +385,8 @@ Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx,
       resumption_(false),
       handshake_completed_(false),
       mss_queue_(mss_queue),
-      is_alive(true) {
+      is_alive(true),
+      remote_key(remote_key_) {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   ev_io_init(&rev_, readcb, 0, EV_READ);
   wev_.data = this;

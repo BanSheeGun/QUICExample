@@ -409,7 +409,7 @@ int new_client(std::string addr, std::string port, Manager *manager) {
     }
   }
 
-  manager->client.reset(new Client(loop, ssl_ctx, manager->mss_queue));
+  manager->client.reset(new Client(loop, ssl_ctx, manager->remote_key, manager->mss_queue));
 
   run(manager->client, addr.data(), port.data(), loop);
   return 0;
