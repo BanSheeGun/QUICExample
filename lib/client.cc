@@ -365,7 +365,9 @@ void new_messagecb(struct ev_loop *loop, ev_async *w, int revents) {
 
 Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx, std::string remote_key_,
                std::shared_ptr<MessageQueue> mss_queue)
-    : remote_addr_{},
+    : is_alive(true),
+      remote_key(remote_key_),
+      remote_addr_{},
       max_pktlen_(0),
       loop_(loop),
       ssl_ctx_(ssl_ctx),
@@ -384,9 +386,7 @@ Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx, std::string remote_key_,
       tls_alert_(0),
       resumption_(false),
       handshake_completed_(false),
-      mss_queue_(mss_queue),
-      is_alive(true),
-      remote_key(remote_key_) {
+      mss_queue_(mss_queue) {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   ev_io_init(&rev_, readcb, 0, EV_READ);
   wev_.data = this;
@@ -833,18 +833,10 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
 
 
   ngtcp2_settings settings{};
+  quic_default_setting(settings);
   settings.log_printf = config.quiet ? nullptr : debug::log_printf;
   settings.initial_ts = util::timestamp(loop_);
-  settings.max_stream_data_bidi_local = 256_k;
-  settings.max_stream_data_bidi_remote = 256_k;
-  settings.max_stream_data_uni = 256_k;
-  settings.max_data = 1_m;
-  settings.max_streams_bidi = 1;
-  settings.max_streams_uni = 1;
-  settings.idle_timeout = config.timeout;
-  settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
-  settings.ack_delay_exponent = NGTCP2_DEFAULT_ACK_DELAY_EXPONENT;
-  settings.max_ack_delay = NGTCP2_DEFAULT_MAX_ACK_DELAY;
+
 
   auto path = ngtcp2_path{
       {local_addr.len, const_cast<uint8_t *>(

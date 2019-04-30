@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <memory>
 #include <fstream>
+#include <sstream>
 
 #include <unistd.h>
 #include <getopt.h>
@@ -33,13 +34,21 @@
 using namespace ngtcp2;
 
 namespace {
-int read_transport_params(const char *path, ngtcp2_transport_params *params) {
-  auto f = std::ifstream(path);
-  if (!f) {
-    return -1;
-  }
+int read_transport_params(ngtcp2_transport_params *params) {
+  ngtcp2_settings settings{};
+  quic_default_setting(settings);
+  params->initial_max_streams_bidi = settings.max_streams_bidi;
+  params->initial_max_streams_uni = settings.max_streams_uni;
+  params->initial_max_stream_data_bidi_local = settings.max_stream_data_bidi_local;
+  params->initial_max_stream_data_bidi_remote = settings.max_stream_data_bidi_remote;
+  params->initial_max_stream_data_uni = settings.max_stream_data_uni;
+  params->initial_max_data = settings.max_data;
 
-  for (std::string line; std::getline(f, line);) {
+  std::string value;
+  if (!quic_callback::read_data("transport_params_string", value)) return 0;
+  std::stringstream buffer;
+  buffer << value;
+  for (std::string line; std::getline(buffer, line);) {
     if (util::istarts_with_l(line, "initial_max_streams_bidi=")) {
       params->initial_max_streams_bidi = strtoul(
           line.c_str() + str_size("initial_max_streams_bidi="), nullptr, 10);
@@ -64,20 +73,15 @@ int read_transport_params(const char *path, ngtcp2_transport_params *params) {
           strtoul(line.c_str() + str_size("initial_max_data="), nullptr, 10);
     }
   }
-
   return 0;
 }
 } // namespace
 
 namespace {
-int write_transport_params(const char *path,
-                           const ngtcp2_transport_params *params) {
-  auto f = std::ofstream(path);
-  if (!f) {
-    return -1;
-  }
-
-  f << "initial_max_streams_bidi=" << params->initial_max_streams_bidi << "\n"
+int write_transport_params(const ngtcp2_transport_params *params) {
+  std::stringstream buffer;
+  
+  buffer << "initial_max_streams_bidi=" << params->initial_max_streams_bidi << "\n"
     << "initial_max_streams_uni=" << params->initial_max_streams_uni << "\n"
     << "initial_max_stream_data_bidi_local="
     << params->initial_max_stream_data_bidi_local << "\n"
@@ -87,12 +91,10 @@ int write_transport_params(const char *path,
     << "\n"
     << "initial_max_data=" << params->initial_max_data << "\n";
 
-  f.close();
-  if (!f) {
-    return -1;
-  }
+  std::string params_string = buffer.str();
 
-  return 0;
+  if (quic_callback::write_data("transport_params_string", params_string)) return 0;
+  return -1;
 }
 } // namespace
 
@@ -171,9 +173,8 @@ int transport_params_parse_cb(SSL *ssl, unsigned int ext_type,
     return -1;
   }
 
-  if (config.tp_file && write_transport_params(config.tp_file, &params) != 0) {
-    std::cerr << "Could not write transport parameters in " << config.tp_file
-              << std::endl;
+  if (write_transport_params(&params) != 0) {
+    std::cerr << "Could not write transport parameters" << std::endl;
   }
 
   return 1;
@@ -354,15 +355,12 @@ int run(std::shared_ptr<Client> c, const char *addr, const char *port, EV_P) {
     return -1;
   }
 
-  if (config.tp_file) {
-    ngtcp2_transport_params params;
-    if (read_transport_params(config.tp_file, &params) != 0) {
-      std::cerr << "Could not read transport parameters from " << config.tp_file
-                << std::endl;
-    } else {
-      ngtcp2_conn_set_early_remote_transport_params(c->conn(), &params);
-      c->make_stream_early();
-    }
+  ngtcp2_transport_params params;
+  if (read_transport_params(&params) != 0) {
+    std::cerr << "Could not read transport parameters" << std::endl;
+  } else {
+    ngtcp2_conn_set_early_remote_transport_params(c->conn(), &params);
+    c->make_stream_early();
   }
 
   // For 0-RTT
