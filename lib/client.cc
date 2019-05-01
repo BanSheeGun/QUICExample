@@ -141,35 +141,35 @@ int Client::on_key(int name, const uint8_t *secret, size_t secretlen) {
   switch (name) {
   case SSL_KEY_CLIENT_EARLY_TRAFFIC:
     if (!config.quiet) {
-      std::cerr << "client_early_traffic" << std::endl;
+      QUIC_LOG("client_early_traffic\n");
     }
     ngtcp2_conn_install_early_keys(conn_, key.data(), keylen, iv.data(), ivlen,
                                    hp.data(), hplen);
     break;
   case SSL_KEY_CLIENT_HANDSHAKE_TRAFFIC:
     if (!config.quiet) {
-      std::cerr << "client_handshake_traffic" << std::endl;
+      QUIC_LOG("client_handshake_traffic\n");
     }
     ngtcp2_conn_install_handshake_tx_keys(conn_, key.data(), keylen, iv.data(),
                                           ivlen, hp.data(), hplen);
     break;
   case SSL_KEY_CLIENT_APPLICATION_TRAFFIC:
     if (!config.quiet) {
-      std::cerr << "client_application_traffic" << std::endl;
+      QUIC_LOG("client_application_traffic\n");
     }
     ngtcp2_conn_install_tx_keys(conn_, key.data(), keylen, iv.data(), ivlen,
                                 hp.data(), hplen);
     break;
   case SSL_KEY_SERVER_HANDSHAKE_TRAFFIC:
     if (!config.quiet) {
-      std::cerr << "server_handshake_traffic" << std::endl;
+      QUIC_LOG("server_handshake_traffic\n");
     }
     ngtcp2_conn_install_handshake_rx_keys(conn_, key.data(), keylen, iv.data(),
                                           ivlen, hp.data(), hplen);
     break;
   case SSL_KEY_SERVER_APPLICATION_TRAFFIC:
     if (!config.quiet) {
-      std::cerr << "server_application_traffic" << std::endl;
+      QUIC_LOG("server_application_traffic\n");
     }
     ngtcp2_conn_install_rx_keys(conn_, key.data(), keylen, iv.data(), ivlen,
                                 hp.data(), hplen);
@@ -190,9 +190,8 @@ void msg_cb(int write_p, int version, int content_type, const void *buf,
   int rv;
 
   if (!config.quiet) {
-    std::cerr << "msg_cb: write_p=" << write_p << " version=" << version
-              << " content_type=" << content_type << " len=" << len
-              << std::endl;
+    QUIC_LOG("msg_cb: write_p=%d version=%d content_type=%d len=%zu\n", 
+        write_p, version, content_type, len);
   }
 
   if (!write_p) {
@@ -313,7 +312,7 @@ void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto c = static_cast<Client *>(w->data);
 
   if (!config.quiet) {
-    std::cerr << "Timeout" << std::endl;
+    QUIC_LOG("Timeout\n");
   }
 
   c->disconnect();
@@ -757,7 +756,7 @@ int Client::init_ssl() {
           QUIC_LOG("Could not set session\n");
           quic_callback::notice_error(QuicError(SESSION_ERROR), 0);
         } else {
-          resumption_ = true; 
+          resumption_ = true;
         }
         SSL_SESSION_free(session);
       }
@@ -833,12 +832,10 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   std::generate(std::begin(dcid.data), std::begin(dcid.data) + dcid.datalen,
                 [&dis]() { return dis(randgen); });
 
-
   ngtcp2_settings settings{};
   quic_default_setting(settings);
   settings.log_printf = config.quiet ? nullptr : debug::log_printf;
   settings.initial_ts = util::timestamp(loop_);
-
 
   auto path = ngtcp2_path{
       {local_addr.len, const_cast<uint8_t *>(
@@ -848,7 +845,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   rv = ngtcp2_conn_client_new(&conn_, &dcid, &scid, &path, version, &callbacks,
                               &settings, this);
   if (rv != 0) {
-    std::cerr << "ngtcp2_conn_client_new: " << ngtcp2_strerror(rv) << std::endl;
+    QUIC_LOG("ngtcp2_conn_client_new: %s\n", ngtcp2_strerror(rv));
     return -1;
   }
 
@@ -878,7 +875,7 @@ int Client::setup_initial_crypto_context() {
       reinterpret_cast<const uint8_t *>(NGTCP2_INITIAL_SALT),
       str_size(NGTCP2_INITIAL_SALT));
   if (rv != 0) {
-    std::cerr << "crypto::derive_initial_secret() failed" << std::endl;
+    QUIC_LOG("crypto::derive_initial_secret() failed\n");
     return -1;
   }
 
@@ -893,7 +890,7 @@ int Client::setup_initial_crypto_context() {
                                             initial_secret.data(),
                                             initial_secret.size());
   if (rv != 0) {
-    std::cerr << "crypto::derive_client_initial_secret() failed" << std::endl;
+    QUIC_LOG("crypto::derive_client_initial_secret() failed\n");
     return -1;
   }
 
@@ -931,7 +928,7 @@ int Client::setup_initial_crypto_context() {
                                             initial_secret.data(),
                                             initial_secret.size());
   if (rv != 0) {
-    std::cerr << "crypto::derive_server_initial_secret() failed" << std::endl;
+    QUIC_LOG("crypto::derive_server_initial_secret() failed\n");
     return -1;
   }
 
@@ -983,11 +980,10 @@ int Client::tls_handshake(bool initial) {
       auto err = SSL_get_error(ssl_, rv);
       switch (err) {
       case SSL_ERROR_SSL:
-        std::cerr << "TLS handshake error: "
-                  << ERR_error_string(ERR_get_error(), nullptr) << std::endl;
+        QUIC_LOG("TLS handshake error: %s\n", ERR_error_string(ERR_get_error(), nullptr));
         return -1;
       default:
-        std::cerr << "TLS handshake error: " << err << std::endl;
+        QUIC_LOG("TLS handshake error: %d\n", err);
         return -1;
       }
     }
@@ -1001,11 +997,10 @@ int Client::tls_handshake(bool initial) {
     case SSL_ERROR_WANT_WRITE:
       return 0;
     case SSL_ERROR_SSL:
-      std::cerr << "TLS handshake error: "
-                << ERR_error_string(ERR_get_error(), nullptr) << std::endl;
+      QUIC_LOG("TLS handshake error: %s\n", ERR_error_string(ERR_get_error(), nullptr));
       return -1;
     default:
-      std::cerr << "TLS handshake error: " << err << std::endl;
+      QUIC_LOG("TLS handshake error: %d\n", err);
       return -1;
     }
   }
@@ -1013,11 +1008,10 @@ int Client::tls_handshake(bool initial) {
   // SSL_get_early_data_status works after handshake completes.
   if (resumption_ &&
       SSL_get_early_data_status(ssl_) != SSL_EARLY_DATA_ACCEPTED) {
-    std::cerr << "Early data was rejected by server" << std::endl;
+    QUIC_LOG("Early data was rejected by server\n");
     rv = ngtcp2_conn_early_data_rejected(conn_);
     if (rv != 0) {
-      std::cerr << "ngtcp2_conn_early_data_rejected: " << ngtcp2_strerror(rv)
-                << std::endl;
+      QUIC_LOG("ngtcp2_conn_early_data_rejected: %s\n",ngtcp2_strerror(rv));
       return -1;
     }
   }
@@ -1029,18 +1023,14 @@ int Client::tls_handshake(bool initial) {
   }
 
   if (!config.quiet) {
-    std::cerr << "Negotiated cipher suite is " << SSL_get_cipher_name(ssl_)
-              << std::endl;
+    QUIC_LOG("Negotiated cipher suite is %s\n", SSL_get_cipher_name(ssl_));
 
     const unsigned char *alpn = nullptr;
     unsigned int alpnlen;
 
     SSL_get0_alpn_selected(ssl_, &alpn, &alpnlen);
-    if (alpn) {
-      std::cerr << "Negotiated ALPN is ";
-      std::cerr.write(reinterpret_cast<const char *>(alpn), alpnlen);
-      std::cerr << std::endl;
-    }
+    if (alpn)
+      QUIC_LOG("Negotiated ALPN is %s\n", reinterpret_cast<const char *>(alpn));
   }
 
   return 0;
@@ -1055,10 +1045,8 @@ int Client::read_tls() {
   for (;;) {
     auto rv = SSL_read_ex(ssl_, buf.data(), buf.size(), &nread);
     if (rv == 1) {
-      if (!config.quiet) {
-        std::cerr << "Read " << nread << " bytes from TLS crypto stream"
-                  << std::endl;
-      }
+      if (!config.quiet)
+        QUIC_LOG("Read %zu bytes from TLS crypto stream\n", nread);
       continue;
     }
     auto err = SSL_get_error(ssl_, 0);
@@ -1068,11 +1056,10 @@ int Client::read_tls() {
       return 0;
     case SSL_ERROR_SSL:
     case SSL_ERROR_ZERO_RETURN:
-      std::cerr << "TLS read error: "
-                << ERR_error_string(ERR_get_error(), nullptr) << std::endl;
+      QUIC_LOG("TLS read error: %s\n", ERR_error_string(ERR_get_error(), nullptr));
       return NGTCP2_ERR_CRYPTO;
     default:
-      std::cerr << "TLS read error: " << err << std::endl;
+      QUIC_LOG("TLS read error: %d\n", err);
       return NGTCP2_ERR_CRYPTO;
     }
   }
@@ -1089,7 +1076,7 @@ int Client::feed_data(const sockaddr *sa, socklen_t salen, uint8_t *data,
     rv = ngtcp2_conn_read_pkt(conn_, &path, data, datalen,
                               util::timestamp(loop_));
     if (rv != 0) {
-      std::cerr << "ngtcp2_conn_read_pkt: " << ngtcp2_strerror(rv) << std::endl;
+      QUIC_LOG("ngtcp2_conn_read_pkt: %s\n", ngtcp2_strerror(rv));
       disconnect(rv);
       return -1;
     }
@@ -1104,8 +1091,7 @@ int Client::do_handshake_read_once(const uint8_t *data, size_t datalen) {
   auto rv =
       ngtcp2_conn_read_handshake(conn_, data, datalen, util::timestamp(loop_));
   if (rv < 0) {
-    std::cerr << "ngtcp2_conn_read_handshake: " << ngtcp2_strerror(rv)
-              << std::endl;
+    QUIC_LOG("ngtcp2_conn_read_handshake: %s\n", ngtcp2_strerror(rv));
     disconnect(rv);
     return -1;
   }
@@ -1117,8 +1103,7 @@ ssize_t Client::do_handshake_write_once() {
   auto nwrite = ngtcp2_conn_write_handshake(conn_, sendbuf_.wpos(), max_pktlen_,
                                             util::timestamp(loop_));
   if (nwrite < 0) {
-    std::cerr << "ngtcp2_conn_write_handshake: " << ngtcp2_strerror(nwrite)
-              << std::endl;
+    QUIC_LOG("ngtcp2_conn_write_handshake: %s\n", ngtcp2_strerror(nwrite));
     disconnect(nwrite);
     return -1;
   }
@@ -1185,14 +1170,13 @@ int Client::on_read() {
 
     if (nread == -1) {
       if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        std::cerr << "recvfrom: " << strerror(errno) << std::endl;
+        QUIC_LOG("recvfrom: %s\n", strerror(errno));
       }
       break;
     }
 
     if (!config.quiet) {
-      std::cerr << "Received packet from " << util::straddr(&su.sa, addrlen)
-                << std::endl;
+      QUIC_LOG("Received packet from %s", util::straddr(&su.sa, addrlen).data());
     }
 
     if (feed_data(&su.sa, addrlen, buf.data(), nread) != 0) {
@@ -1222,8 +1206,7 @@ int Client::on_write(bool retransmit) {
     auto rv =
         ngtcp2_conn_on_loss_detection_timer(conn_, util::timestamp(loop_));
     if (rv != 0) {
-      std::cerr << "ngtcp2_conn_on_loss_detection_timer: "
-                << ngtcp2_strerror(rv) << std::endl;
+      QUIC_LOG("ngtcp2_conn_on_loss_detection_timer: %s\n", ngtcp2_strerror(rv));
       disconnect(NGTCP2_ERR_INTERNAL);
       return -1;
     }
@@ -1239,7 +1222,7 @@ int Client::on_write(bool retransmit) {
     auto n = ngtcp2_conn_write_pkt(conn_, nullptr, sendbuf_.wpos(), max_pktlen_,
                                    util::timestamp(loop_));
     if (n < 0) {
-      std::cerr << "ngtcp2_conn_write_pkt: " << ngtcp2_strerror(n) << std::endl;
+      QUIC_LOG("ngtcp2_conn_write_pkt: %s\n", ngtcp2_strerror(n));
       disconnect(n);
       return -1;
     }
@@ -1314,8 +1297,7 @@ int Client::on_write_stream(uint64_t stream_id, uint8_t fin, Buffer &data) {
                                         // closed.
         return 0;
       }
-      std::cerr << "ngtcp2_conn_write_stream: " << ngtcp2_strerror(n)
-                << std::endl;
+      QUIC_LOG("ngtcp2_conn_write_stream: %s\n", ngtcp2_strerror(n));
       disconnect(n);
       return -1;
     }
@@ -1388,8 +1370,7 @@ int Client::on_write_0rtt_stream(uint64_t stream_id, uint8_t fin,
                                         // closed.
         return 0;
       }
-      std::cerr << "ngtcp2_conn_client_write_handshake: " << ngtcp2_strerror(n)
-                << std::endl;
+      QUIC_LOG("ngtcp2_conn_client_write_handshake: %s\n", ngtcp2_strerror(n));
       disconnect(n);
       return -1;
     }
@@ -1521,7 +1502,7 @@ ngtcp2_conn *Client::conn() const { return conn_; }
 
 int Client::update_key() {
   if (!config.quiet) {
-    std::cerr << "Updating traffic key" << std::endl;
+    QUIC_LOG("Updating traffic key\n");
   }
 
   int rv;
@@ -1552,13 +1533,12 @@ int Client::update_key() {
 
   rv = ngtcp2_conn_update_tx_key(conn_, key.data(), keylen, iv.data(), ivlen);
   if (rv != 0) {
-    std::cerr << "ngtcp2_conn_update_tx_key: " << ngtcp2_strerror(rv)
-              << std::endl;
+    QUIC_LOG("ngtcp2_conn_update_tx_key: %s\n", ngtcp2_strerror(rv));
     return -1;
   }
 
   if (!config.quiet) {
-    std::cerr << "client_application_traffic " << nkey_update_ << std::endl;
+    QUIC_LOG("client_application_traffic %zu\n", nkey_update_);
     debug::print_secrets(secret.data(), secretlen, key.data(), keylen,
                          iv.data(), ivlen);
   }
@@ -1586,13 +1566,12 @@ int Client::update_key() {
 
   rv = ngtcp2_conn_update_rx_key(conn_, key.data(), keylen, iv.data(), ivlen);
   if (rv != 0) {
-    std::cerr << "ngtcp2_conn_update_rx_key: " << ngtcp2_strerror(rv)
-              << std::endl;
+    QUIC_LOG("ngtcp2_conn_update_rx_key: %s\n", ngtcp2_strerror(rv));
     return -1;
   }
 
   if (!config.quiet) {
-    std::cerr << "server_application_traffic " << nkey_update_ << std::endl;
+    QUIC_LOG("server_application_traffic %zu\n", nkey_update_);
     debug::print_secrets(secret.data(), secretlen, key.data(), keylen,
                          iv.data(), ivlen);
   }
@@ -1616,7 +1595,7 @@ int Client::send_packet() {
     case 0:
       return NETWORK_ERR_SEND_NON_FATAL;
     default:
-      std::cerr << "send: " << strerror(errno) << std::endl;
+      QUIC_LOG("send: %s\n", strerror(errno));
       return NETWORK_ERR_SEND_FATAL;
     }
   }
@@ -1625,9 +1604,7 @@ int Client::send_packet() {
   sendbuf_.reset();
 
   if (!config.quiet) {
-    std::cerr << "Sent packet to "
-              << util::straddr(&remote_addr_.su.sa, remote_addr_.len) << " "
-              << nwrite << " bytes" << std::endl;
+    QUIC_LOG("Sent packet to %s %zu bytes\n", util::straddr(&remote_addr_.su.sa, remote_addr_.len).data(), nwrite);
   }
 
   return NETWORK_ERR_OK;
@@ -1656,8 +1633,7 @@ int Client::handle_error(int liberr) {
                                               max_pktlen_, err_code,
                                               util::timestamp(loop_));
   if (n < 0) {
-    std::cerr << "ngtcp2_conn_write_connection_close: " << ngtcp2_strerror(n)
-              << std::endl;
+    QUIC_LOG("ngtcp2_conn_write_connection_close: %s\n", ngtcp2_strerror(n));
     return -1;
   }
 
@@ -1690,7 +1666,7 @@ int Client::remove_tx_stream_data(uint64_t stream_id, uint64_t offset,
                                   size_t datalen) {
   auto it = streams_.find(stream_id);
   if (it == std::end(streams_)) {
-    std::cerr << "Stream " << stream_id << "not found" << std::endl;
+    QUIC_LOG("Stream %" PRId64 " not found\n", stream_id);
     return 0;
   }
   auto &stream = (*it).second;
@@ -1717,8 +1693,7 @@ void Client::make_stream_early() {
   uint64_t stream_id;
   rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
   if (rv != 0) {
-    std::cerr << "ngtcp2_conn_open_bidi_stream: " << ngtcp2_strerror(rv)
-              << std::endl;
+    QUIC_LOG("ngtcp2_conn_open_bidi_stream: %s\n", ngtcp2_strerror(rv));
     req->mtx.unlock();
     return;
   }
@@ -1776,8 +1751,7 @@ Client::send_message(std::unique_ptr<Message> &mss) {
   if (req->stream_id == -1) {
     rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
     if (rv != 0) {
-      std::cerr << "ngtcp2_conn_open_bidi_stream: " << ngtcp2_strerror(rv)
-                << std::endl;
+      QUIC_LOG("ngtcp2_conn_open_bidi_stream: %s\n", ngtcp2_strerror(rv));
       req->mtx.unlock();
       return;
     }
