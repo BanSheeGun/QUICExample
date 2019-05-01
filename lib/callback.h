@@ -9,6 +9,8 @@
 
 #include "err.h"
 
+#include <string>
+
 struct Metric {
   Metric() : stream_id(0) {}
   Metric(int stream_id_) : stream_id(stream_id_) {}
@@ -27,6 +29,17 @@ void set_callback(QUIC_CALLBACK);
 
 void notice_error(QuicError, Metric);
 
+extern bool (*quic_read_cb)(std::string, std::string &);
+
+extern bool (*quic_write_cb)(std::string, std::string);
+
+void set_read_callback(bool (*cb)(std::string, std::string &));
+
+void set_write_callback(bool (*cb)(std::string, std::string));
+
+bool read_data(std::string, std::string &);
+
+bool write_data(std::string, std::string);
 } // namespace
 
 #endif // CALLBACK_H

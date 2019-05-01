@@ -16,34 +16,6 @@
 #include "manager.h"
 
 namespace {
-static std::mutex *lockarray; 
-
-static void lock_callback(int mode, int type, char *file, int line) { 
-  if (mode & CRYPTO_LOCK)
-    lockarray[type].lock(); 
-  else
-    lockarray[type].unlock(); 
-} 
-   
-static void thread_id(CRYPTO_THREADID *id) { 
-  CRYPTO_THREADID_set_numeric(id, (unsigned long)pthread_self());
-} 
-   
-static void init_locks(void) { 
-  SSL_load_error_strings();
-  SSL_library_init();
-  lockarray = new std::mutex[CRYPTO_num_locks()];
-  CRYPTO_THREADID_set_callback(thread_id); 
-  CRYPTO_set_locking_callback(lock_callback); 
-} 
-   
-static void kill_locks(void) { 
-  CRYPTO_set_locking_callback(NULL);
-  delete[] lockarray;
-}
-} // ssl mutex namespace
-
-namespace {
 void config_set_default(Config &config) {
   config = Config{};
   config.ciphers = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_"
@@ -51,6 +23,7 @@ void config_set_default(Config &config) {
   config.groups = "P-256:X25519:P-384:P-521";
   config.nstreams = 1;
   config.timeout = 30;
+  config.quiet = true;
 }
 } // namespace
 
@@ -62,13 +35,11 @@ std::mutex mtx;
 void
 quic_sdk::initialize() {
   config_set_default(config);
-  init_locks();
 }
 
 void
 quic_sdk::clear() {
   pool.clear();
-  kill_locks();
 }
 
 int 

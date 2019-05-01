@@ -41,6 +41,12 @@ namespace ngtcp2 {
 
 namespace util {
 
+size_t calcDecodeLength(const char* b64input);
+
+int Base64Decode(const char* b64message, unsigned char** buffer, size_t* length);
+
+int Base64Encode(const unsigned char* buffer, size_t length, char** b64text);
+
 std::string format_hex(uint8_t c);
 
 std::string format_hex(const uint8_t *s, size_t len);

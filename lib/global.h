@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <ngtcp2/ngtcp2.h>
+
 #include "err.h"
 #include "callback.h"
 
@@ -49,15 +51,12 @@ struct Config {
   bool quiet;
   // timeout is an idle timeout for QUIC connection.
   uint32_t timeout;
-  // session_file is a path to a file to write, and read TLS session.
-  const char *session_file;
-  // tp_file is a path to a file to write, and read QUIC transport
-  // parameters.
-  const char *tp_file;
   // show_secret is true if transport secrets should be printed out.
   bool show_secret;
 };
 
 extern Config config;
+
+void quic_default_setting(ngtcp2_settings &settings);
 
 #endif //GLOBAL_H

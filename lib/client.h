@@ -63,7 +63,8 @@ struct Stream {
 
 class Client {
 public:
-  Client(struct ev_loop *loop, SSL_CTX *ssl_ctx, std::shared_ptr<MessageQueue> mss_queue);
+  Client(struct ev_loop *loop, SSL_CTX *ssl_ctx, std::string remote_key_,
+      std::shared_ptr<MessageQueue> mss_queue);
   ~Client();
 
   int init(int fd, const Address &local_addr, const Address &remote_addr,
@@ -140,6 +141,7 @@ public:
   void send_message();
   void send_message(std::unique_ptr<Message> &mss);
   bool is_alive;
+  std::string remote_key;
 
 
 private:
