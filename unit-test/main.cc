@@ -8,6 +8,8 @@
 #include <cstring>
 #include <CUnit/Basic.h>
 
+#include "test_callback.h"
+
 static int init_suite1(void) { return 0; }
 
 static int clean_suite1(void) { return 0; }
@@ -28,14 +30,12 @@ int main() {
   }
 
   /* add the tests to the suite */
-  /*
-  if (!CU_add_test(pSuite, "pkt_decode_hd_long",
-                   test_ngtcp2_pkt_decode_hd_long) ||
-      !CU_add_test(pSuite, "pv_validate", test_ngtcp2_pv_validate)) {
+  
+  if (!CU_add_test(pSuite, "global_callback", test_callback_global_callback) ||
+      !CU_add_test(pSuite, "read_write_callback", test_callback_read_write_callback)) {
     CU_cleanup_registry();
     return (int)CU_get_error();
   }
-  */
   
   /* Run all tests using the CUnit Basic interface */
   CU_basic_set_mode(CU_BRM_VERBOSE);

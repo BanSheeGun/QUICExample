@@ -1,6 +1,9 @@
 cc_test(
   name = "unit-test",
-  srcs = ["main.cc"],
+  srcs = [
+    "main.cc",
+    "test_callback.h", "test_callback.cc"
+  ],
   deps = [
     "//lib:quicsdk",
   ],
