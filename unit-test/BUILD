@@ -4,7 +4,8 @@ cc_test(
     "main.cc",
     "test_callback.h", "test_callback.cc",
     "test_err.h", "test_err.cc",
-    "test_request.h", "test_request.cc"
+    "test_request.h", "test_request.cc",
+    "test_message.h", "test_message.cc"
   ],
   deps = [
     "//lib:quicsdk",

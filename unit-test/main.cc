@@ -11,6 +11,7 @@
 #include "test_callback.h"
 #include "test_err.h"
 #include "test_request.h"
+#include "test_message.h"
 
 static int init_suite1(void) { return 0; }
 
@@ -38,7 +39,10 @@ int main() {
       !CU_add_test(pSuite, "quicerror_quicerrno", test_err_quicerror) ||
       !CU_add_test(pSuite, "new_find_request", test_request_new_find) ||
       !CU_add_test(pSuite, "reset_request", test_request_reset) ||
-      !CU_add_test(pSuite, "del_request", test_request_del)) {
+      !CU_add_test(pSuite, "del_request", test_request_del) ||
+      !CU_add_test(pSuite, "push_notice_message", test_message_push) ||
+      !CU_add_test(pSuite, "pop_message", test_message_pop) ||
+      !CU_add_test(pSuite, "clear_message", test_message_clear)) {
     CU_cleanup_registry();
     return (int)CU_get_error();
   }
