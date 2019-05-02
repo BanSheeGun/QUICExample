@@ -311,11 +311,10 @@ void readcb(struct ev_loop *loop, ev_io *w, int revents) {
 void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto c = static_cast<Client *>(w->data);
 
-  if (!config.quiet) {
-    QUIC_LOG("Timeout\n");
-  }
+  if (!config.quiet) QUIC_LOG("Timeout\n");
 
   c->disconnect();
+  quic_callback::notice_error(TIME_OUT, 0);
 }
 
 void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
