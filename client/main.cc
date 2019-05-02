@@ -1,6 +1,8 @@
 #include "lib/api.h"
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <ctime>
 #include <unistd.h>
 #include <cstring>
@@ -8,26 +10,25 @@
 #include <mutex>
 #include <map>
 
-std::mutex mtx, data_mtx;
-std::map<std::string, std::string> data;
+std::mutex mtx;
 
 bool read_data(std::string key, std::string &value) {
-  data_mtx.lock();
-  auto it = data.find(key);
-  if (it != data.end()) {
-    value = it->second;
-    data_mtx.unlock();
+  std::ifstream file(key);
+  if (file.is_open()) {
+    std::ostringstream buf;
+    char ch;
+    while(buf && file.get(ch)) buf.put(ch);
+    value = buf.str();
+    file.close();
     return true;
-  } else {
-    data_mtx.unlock();
-    return false;
   }
+  return false;
 }
 
 bool write_data(std::string key, std::string value) {
-  data_mtx.lock();
-  data.emplace(key, value);
-  data_mtx.unlock();
+  std::ofstream file(key);
+  file << value;
+  file.close();
   return true;
 }
 
