@@ -4,7 +4,7 @@ from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 import commands
 
 def get_quic(path):
-  return commands.getoutput('./bazel-bin/client/main ' + path)
+  return commands.getoutput('./bazel-bin/client/main 127.0.0.1 4433 ' + path)
 
 class MyHandler(BaseHTTPRequestHandler):
   def do_GET(self):
