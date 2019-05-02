@@ -9,6 +9,8 @@
 #include <CUnit/Basic.h>
 
 #include "test_callback.h"
+#include "test_err.h"
+#include "test_request.h"
 
 static int init_suite1(void) { return 0; }
 
@@ -32,7 +34,11 @@ int main() {
   /* add the tests to the suite */
   
   if (!CU_add_test(pSuite, "global_callback", test_callback_global_callback) ||
-      !CU_add_test(pSuite, "read_write_callback", test_callback_read_write_callback)) {
+      !CU_add_test(pSuite, "read_write_callback", test_callback_read_write_callback) ||
+      !CU_add_test(pSuite, "quicerror_quicerrno", test_err_quicerror) ||
+      !CU_add_test(pSuite, "new_find_request", test_request_new_find) ||
+      !CU_add_test(pSuite, "reset_request", test_request_reset) ||
+      !CU_add_test(pSuite, "del_request", test_request_del)) {
     CU_cleanup_registry();
     return (int)CU_get_error();
   }

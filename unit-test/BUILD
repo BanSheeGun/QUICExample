@@ -2,7 +2,9 @@ cc_test(
   name = "unit-test",
   srcs = [
     "main.cc",
-    "test_callback.h", "test_callback.cc"
+    "test_callback.h", "test_callback.cc",
+    "test_err.h", "test_err.cc",
+    "test_request.h", "test_request.cc"
   ],
   deps = [
     "//lib:quicsdk",
