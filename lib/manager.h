@@ -17,7 +17,6 @@ struct Manager {
   Manager(std::string addr, std::string port);
   ~Manager();
   void push(uint8_t *, size_t, bool, std::shared_ptr<Request> &);
-  void run();
   
   std::string remote_key;
   std::shared_ptr<Client > client;
