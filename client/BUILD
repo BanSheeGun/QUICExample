@@ -1,5 +1,5 @@
 cc_binary(
-  name = "main",
+  name = "client",
   srcs = ["main.cc"],
   deps = [
     "//lib:quicsdk",
